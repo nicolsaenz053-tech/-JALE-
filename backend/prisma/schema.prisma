@@ -1,0 +1,177 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Modelo de Usuario
+model User {
+  id                String     @id @default(cuid())
+  email             String     @unique
+  phone             String     @unique
+  firstName         String
+  lastName          String
+  profilePhoto      String?
+  selfiePhotoUrl    String?    // Foto de selfie para verificación
+  documentPhotoUrl  String?    // Foto del documento
+  documentType      String?    // CC, Pasaporte, etc.
+  documentNumber    String?    @unique
+  isVerified        Boolean    @default(false) // Estado de verificación
+  verificationDate  DateTime?
+  rating            Float      @default(5.0)
+  reviewCount       Int        @default(0)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  // Relaciones
+  products          Product[]
+  transactions      Transaction[]
+  reviews           Review[]    @relation("ReviewAuthor")
+  receivedReviews   Review[]    @relation("ReviewTarget")
+
+  @@index([email])
+  @@index([phone])
+}
+
+// Estados de productos
+enum ProductState {
+  NUEVO              // Nuevo de paquete (sellado)
+  COMO_NUEVO         // Caja abierta, sin factura
+  USADO_BUENO        // Usado bueno
+  REPUESTOS          // Para repuestos
+}
+
+// Estado de publicación
+enum PublicationStatus {
+  DRAFT
+  PUBLISHED
+  SOLD
+  REMOVED
+}
+
+// Modalidad de entrega
+enum DeliveryMode {
+  PRESENCIAL_PUNTO_SEGURO  // Entrega presencial en punto seguro
+  CONTRA_ENTREGA            // Envío contra entrega
+}
+
+// Modelo de Producto
+model Product {
+  id                      String              @id @default(cuid())
+  userId                  String
+  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title                   String
+  description             String
+  category                String
+  subcategory             String?
+  
+  // Información de modelo/referencia
+  brandModel              String              // p.e. "iPhone 13 Pro", "Samsung Galaxy A52"
+  year                    Int?                // Año de fabricación/modelo
+  
+  // Precios
+  precioPropuesto         Decimal             @db.Numeric(10, 2)
+  precioMaximoCalculado   Decimal             @db.Numeric(10, 2)
+  
+  // Estado del producto
+  estadoProducto          ProductState
+  condition               String              // "Funciona perfectamente", "Con defectos menores", etc.
+  
+  // Fotos
+  photos                  String[]            // Array de URLs de fotos
+  mainPhoto               String              // Foto principal
+  
+  // Entrega
+  deliveryMode            DeliveryMode[]      // Array de modalidades permitidas
+  safePointLocation       String?             // Ubicación del punto seguro (si aplica)
+  shippingCost            Decimal?            @db.Numeric(10, 2)
+  
+  // Publicación
+  status                  PublicationStatus   @default(DRAFT)
+  publishedAt             DateTime?
+  
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  // Relaciones
+  transactions            Transaction[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([status])
+}
+
+// Tabla de Referencia de Precios
+model PriceReference {
+  id                String    @id @default(cuid())
+  category          String    // "celulares", "vehiculos", "ropa", etc.
+  subcategory       String?   // "smartphones", "autos", "jeans", etc.
+  brandModel        String    // "iPhone 13 Pro", "Samsung Galaxy A52", "Ford Focus 2020"
+  year              Int?      // Año de lanzamiento o fabricación
+  
+  referencePriceUSD Decimal   @db.Numeric(10, 2)  // Precio de referencia en USD
+  referencePriceCOP Decimal   @db.Numeric(12, 2)  // Precio de referencia en COP
+  
+  // Porcentajes de depreciación (se pueden personalizar por categoría)
+  depreciationNew       Float   @default(0.05)      // 5% - Nuevo de paquete
+  depreciationLikeNew   Float   @default(0.25)      // 25% - Como nuevo
+  depreciationUsedGood  Float   @default(0.45)      // 45% - Usado bueno
+  depreciationSpares    Float   @default(0.75)      // 75% - Para repuestos
+  
+  isActive          Boolean   @default(true)
+  lastUpdatedAt     DateTime  @default(now()) @updatedAt
+  
+  createdAt         DateTime  @default(now())
+
+  @@unique([category, subcategory, brandModel, year])
+  @@index([category])
+  @@index([brandModel])
+}
+
+// Modelo de Transacción
+model Transaction {
+  id                String    @id @default(cuid())
+  productId         String
+  product           Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  sellerId          String
+  seller            User      @relation(fields: [sellerId], references: [id])
+  
+  buyerId           String?   // NULL hasta que se asigne
+  
+  finalPrice        Decimal   @db.Numeric(10, 2)
+  deliveryMode      DeliveryMode
+  
+  status            String    @default("PENDING")  // PENDING, CONFIRMED, DELIVERED, CANCELLED
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([productId])
+  @@index([sellerId])
+}
+
+// Modelo de Reseñas
+model Review {
+  id                String    @id @default(cuid())
+  authorId          String
+  author            User      @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  
+  targetUserId      String
+  targetUser        User      @relation("ReviewTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  
+  rating            Int       // 1-5
+  comment           String?
+  
+  createdAt         DateTime  @default(now())
+
+  @@unique([authorId, targetUserId])
+  @@index([targetUserId])
+}
